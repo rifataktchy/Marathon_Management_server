@@ -31,6 +31,49 @@ async function run() {
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+    const eventCollection = client.db('merathonDB').collection('event');
+//event related apis
+app.post("/events", async (req, res) => {
+    try {
+      const newEvent = req.body;
+
+      // Ensure required fields are present
+      if (
+        !newEvent.title ||
+        !newEvent.startRegistrationDate ||
+        !newEvent.endRegistrationDate ||
+        !newEvent.marathonStartDate ||
+        !newEvent.location ||
+        !newEvent.distance ||
+        !newEvent.description ||
+        !newEvent.image
+      ) {
+        return res
+          .status(400)
+          .json({ error: "All required fields must be provided." });
+      }
+
+      // Insert the new event into the database
+      const result = await eventCollection.insertOne(newEvent);
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error creating marathon event:", error);
+      res.status(500).json({ error: "Failed to create event." });
+    }
+  });
+
+  app.get("/events", async (req, res) => {
+    try {
+      const events = await eventCollection.find({}).toArray(); // Fetch all events
+      res.status(200).json(events);
+    } catch (error) {
+      console.error("Error fetching events:", error);
+      res.status(500).json({ error: "Failed to fetch events." });
+    }
+  });
+  
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
