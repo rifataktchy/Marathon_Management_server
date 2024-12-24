@@ -104,19 +104,6 @@ app.post("/events", async (req, res) => {
     }
   });
 
-  // app.get("/events", async (req, res) => {
-  //   const { email } = req.query;
-  //   if (!email) {
-  //     return res.status(400).send({ success: false, message: "Email is required." });
-  //   }
-  //   try {
-  //     const registrations = await eventCollection.find({ email }).toArray();
-  //     res.send(registrations);
-  //   } catch (error) {
-  //     res.status(500).send({ success: false, message: "Failed to fetch events." });
-  //   }
-  // });
-
   app.get("/events",  async (req, res) => {
     const email = req.query.email; // Get email from query params
     if (!email) {
