@@ -162,27 +162,6 @@ app.delete("/events/:id", verifyToken, async (req, res) => {
       res.status(500).send({ error: "Internal server error" });
     }
   });
-//   app.get("/events/:id", async (req, res) => {
-//   const id = req.params.id;
-//   const marathon = await eventCollection.findOne({ _id: new ObjectId(id) });
-//   res.send(marathon);
-// });
-
-// app.patch("/events/:id", async (req, res) => {
-//   const id = req.params.id;
-//   const incrementValue = req.body.increment || 1;
-//   const result = await eventCollection.updateOne(
-//     { _id: new ObjectId(id) },
-//     { $inc: { totalRegistrations: incrementValue } }
-//   );
-//   res.send(result);
-// });
-
-// app.post("/register", async (req, res) => {
-//   const registration = req.body;
-//   const result = await registerCollection.insertOne(registration);
-//   res.send(result);
-// });
 
 app.post("/register", async (req, res) => {
   const registration = req.body;
