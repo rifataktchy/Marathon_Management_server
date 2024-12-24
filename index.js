@@ -1,17 +1,41 @@
 const express = require('express');
 const cors = require('cors');
-// const jwt = require('jsonwebtoken');
-// const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const app = express();
 require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
-// app.use(cookieParser());
+app.use(cookieParser());
 
+const logger = (req, res, next) => {
+  console.log('inside the logger');
+  next();
+}
+
+const verifyToken = (req, res, next) => {
+  //console.log(req.cookies)
+  const token = req?.cookies?.token;
+  if (!token) {
+      return res.status(401).send({ message: 'unAuthorized access' })
+  }
+
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+      if (err) {
+          return res.status(401).send({ message: 'unauthorized access' })
+      }
+      req.user = decoded;
+      next();
+  })
+
+}
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.o0bvl.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -33,6 +57,22 @@ async function run() {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     const eventCollection = client.db('merathonDB').collection('event');
+    const registerCollection = client.db('merathonDB').collection('register');
+
+//auth related apis
+app.post('/jwt', async (req, res) => {
+  const user = req.body;
+  const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' });
+
+  res
+      .cookie('token', token, {
+          httpOnly: true,
+          secure: false, //for localhost
+      })
+      .send({ success: true })
+
+});
+
 //event related apis
 app.post("/events", async (req, res) => {
     try {
@@ -65,15 +105,19 @@ app.post("/events", async (req, res) => {
   });
 
   // app.get("/events", async (req, res) => {
+  //   const { email } = req.query;
+  //   if (!email) {
+  //     return res.status(400).send({ success: false, message: "Email is required." });
+  //   }
   //   try {
-  //     const events = await eventCollection.find({}).toArray(); // Fetch all events
-  //     res.status(200).json(events);
+  //     const registrations = await eventCollection.find({ email }).toArray();
+  //     res.send(registrations);
   //   } catch (error) {
-  //     console.error("Error fetching events:", error);
-  //     res.status(500).json({ error: "Failed to fetch events." });
+  //     res.status(500).send({ success: false, message: "Failed to fetch events." });
   //   }
   // });
-  app.get('/events', async (req, res) => {
+
+  app.get("/events",  async (req, res) => {
     const email = req.query.email; // Get email from query params
     if (!email) {
       const cursor = eventCollection.find();
@@ -85,6 +129,33 @@ app.post("/events", async (req, res) => {
     const userCampaigns = await eventCollection.find({ userEmail: email }).toArray();
     res.send(userCampaigns);
   });
+
+  app.put("/events/:id", verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const updatedData = req.body;
+    try {
+      const result = await eventCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedData }
+      );
+      res.send(result);
+    } catch (error) {
+      res.status(500).send({ success: false, message: "Failed to update event." });
+    }
+  });
+
+// Delete marathon
+app.delete("/events/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await eventCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: "Failed to delete registration." });
+  }
+});
+ 
+  
 
    // Route to get a specific campaign by ID
    app.get('/merathon/:id', async (req, res) => {
@@ -120,11 +191,88 @@ app.post("/events", async (req, res) => {
 //   res.send(result);
 // });
 
-// app.post("/registrations", async (req, res) => {
+// app.post("/register", async (req, res) => {
 //   const registration = req.body;
-//   const result = await registrationCollection.insertOne(registration);
+//   const result = await registerCollection.insertOne(registration);
 //   res.send(result);
 // });
+
+app.post("/register", async (req, res) => {
+  const registration = req.body;
+
+  try {
+    // Insert the registration data
+    const registrationResult = await registerCollection.insertOne(registration);
+
+    // Increment the registration count for the corresponding event
+    const incrementResult = await eventCollection.updateOne(
+      { _id: new ObjectId(registration.marathonId) },
+      { $inc: { registrationCount: 1 } }
+    );
+
+    if (incrementResult.matchedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "Marathon not found. Registration created, but count not updated.",
+      });
+    }
+
+    res.send({
+      success: true,
+      message: "Registration successful and count updated.",
+      registrationResult,
+    });
+  } catch (error) {
+    console.error("Error during registration:", error);
+    res.status(500).send({
+      success: false,
+      message: "Internal server error during registration.",
+    });
+  }
+});
+
+app.get("/register", verifyToken, async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).send({ success: false, message: "Email is required." });
+  }
+  try {
+  //   if (req.user.email !== req.query.email) {
+  //     return res.status(403).send({ message: 'forbidden access' });
+  // }
+    // console.log('cuk cuk', req.cookies);
+    const registrations = await registerCollection.find({ email }).toArray();
+    res.send(registrations);
+  } catch (error) {
+    res.status(500).send({ success: false, message: "Failed to fetch registrations." });
+  }
+});
+
+app.put("/register/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const updatedData = req.body;
+  try {
+    const result = await registerCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: "Failed to update registration." });
+  }
+});
+
+app.delete("/register/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await registerCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: "Failed to delete registration." });
+  }
+});
+
 
   
   } finally {
