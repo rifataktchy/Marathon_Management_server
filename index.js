@@ -8,17 +8,25 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const port = process.env.PORT || 5000;
 
-app.use(cors({
-  origin: ['http://localhost:5173'],
-  credentials: true
-}));
+const allowedOrigins = [
+  'https://merathon-management-system.netlify.app',
+  'http://localhost:5173'
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true, // If cookies or other credentials are needed
+    // methods: ["GET", "POST", "PUT", "DELETE"],
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
-const logger = (req, res, next) => {
-  console.log('inside the logger');
-  next();
-}
+// const logger = (req, res, next) => {
+//   console.log('inside the logger');
+//   next();
+// }
 
 const verifyToken = (req, res, next) => {
   //console.log(req.cookies)
@@ -59,6 +67,12 @@ async function run() {
     const eventCollection = client.db('merathonDB').collection('event');
     const registerCollection = client.db('merathonDB').collection('register');
 
+    const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+};
+
 //auth related apis
 app.post('/jwt', async (req, res) => {
   const user = req.body;
@@ -66,12 +80,24 @@ app.post('/jwt', async (req, res) => {
 
   res
       .cookie('token', token, {
-          httpOnly: true,
-          secure: false, //for localhost
+        httpOnly: true,              // Prevent JavaScript access to the cookie
+        secure: true,                // Cookies should be sent only over HTTPS
+        sameSite: 'none'
       })
       .send({ success: true })
 
 });
+
+app.post('/logout', (req, res) => {
+  res
+      .clearCookie('token', {
+        httpOnly: true,              // Prevent JavaScript access to the cookie
+    secure: true,                // Cookies should be sent only over HTTPS
+    sameSite: 'none'
+      })
+      .send({ success: true })
+})
+
 
 //event related apis
 app.post("/events", async (req, res) => {
@@ -104,20 +130,61 @@ app.post("/events", async (req, res) => {
     }
   });
 
-  app.get("/events",  async (req, res) => {
-    const email = req.query.email; // Get email from query params
-    if (!email) {
-      const cursor = eventCollection.find();
-      const result = await cursor.toArray();
-      return res.send(result);
+// Fetch All Events
+app.get("/events", async (req, res) => {
+  const email = req.query.email; // Get email from query params
+  const sortOrder = req.query.sortOrder || "desc"; // Default to descending if no sortOrder is provided
+
+  const sortDirection = sortOrder === "asc" ? 1 : -1; // Determine sort direction
+
+  try {
+    let cursor;
+
+    // If email is provided, filter by userEmail, else return all events
+    if (email) {
+      cursor = eventCollection.find({ userEmail: email }).sort({ createdAt: sortDirection });
+    } else {
+      cursor = eventCollection.find().sort({ createdAt: sortDirection });
     }
 
-    // Filter campaigns by email if email is provided
-    const userCampaigns = await eventCollection.find({ userEmail: email }).toArray();
-    res.send(userCampaigns);
-  });
+    const result = await cursor.toArray();
 
-  app.put("/events/:id", verifyToken, async (req, res) => {
+    // Check if any events were found
+    if (result.length === 0) {
+      return res.status(404).json({ message: "No events found" });
+    }
+
+    res.json(result); // Send all events
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+// Fetch Only 6 Events
+app.get("/events/limited", async (req, res) => {
+  const sortOrder = req.query.sortOrder || "desc"; // Default to descending if no sortOrder is provided
+  const sortDirection = sortOrder === "asc" ? 1 : -1; // Determine sort direction
+
+  try {
+    const cursor = eventCollection.find().sort({ createdAt: sortDirection }).limit(6); // Limit to 6 events
+    const result = await cursor.toArray();
+
+    // Check if any events were found
+    if (result.length === 0) {
+      return res.status(404).json({ message: "No events found" });
+    }
+
+    res.json(result); // Send the 6 events
+  } catch (error) {
+    console.error("Error fetching limited events:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+
+  
+  app.put("/events/:id", async (req, res) => {
     const { id } = req.params;
     const updatedData = req.body;
     try {
@@ -132,7 +199,7 @@ app.post("/events", async (req, res) => {
   });
 
 // Delete marathon
-app.delete("/events/:id", verifyToken, async (req, res) => {
+app.delete("/events/:id",  async (req, res) => {
   const { id } = req.params;
   try {
     const result = await eventCollection.deleteOne({ _id: new ObjectId(id) });
@@ -197,13 +264,20 @@ app.post("/register", async (req, res) => {
   }
 });
 
-app.get("/register", verifyToken, async (req, res) => {
+app.get("/register", async (req, res) => {
   const { email } = req.query;
+  console.log(req.cookies)
 
   if (!email) {
     return res.status(400).send({ success: false, message: "Email is required." });
   }
   try {
+    //    const query = { email };
+
+    // // If there's a search query (for title), add it to the query using case-insensitive regex
+    // if (search) {
+    //   query.title = { $regex: search, $options: "i" }; // Case-insensitive search for marathon title
+    // }
   //   if (req.user.email !== req.query.email) {
   //     return res.status(403).send({ message: 'forbidden access' });
   // }
@@ -215,7 +289,7 @@ app.get("/register", verifyToken, async (req, res) => {
   }
 });
 
-app.put("/register/:id", verifyToken, async (req, res) => {
+app.put("/register/:id", async (req, res) => {
   const { id } = req.params;
   const updatedData = req.body;
   try {
@@ -229,7 +303,7 @@ app.put("/register/:id", verifyToken, async (req, res) => {
   }
 });
 
-app.delete("/register/:id", verifyToken, async (req, res) => {
+app.delete("/register/:id", async (req, res) => {
   const { id } = req.params;
   try {
     const result = await registerCollection.deleteOne({ _id: new ObjectId(id) });
@@ -238,6 +312,17 @@ app.delete("/register/:id", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to delete registration." });
   }
 });
+
+
+// app.post('/logout', (req, res) => {
+//   res.cookie('token', '', {
+//     httpOnly: true,
+//     secure: true,
+//     expires: new Date(0),
+//   });
+//   res.send({ success: true, message: 'Logged out successfully' });
+// });
+
 
 
   
