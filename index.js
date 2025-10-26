@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const OpenAI = require('openai');
+const aiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const app = express();
@@ -322,6 +324,36 @@ app.delete("/register/:id", async (req, res) => {
 //   });
 //   res.send({ success: true, message: 'Logged out successfully' });
 // });
+
+
+
+
+// AI chat endpoint
+app.post('/chat', async (req, res) => {
+  const { message, userEmail } = req.body;
+
+  try {
+    // Optionally fetch upcoming events for context
+    const upcomingEvents = await eventCollection.find().limit(5).toArray();
+
+    const response = await aiClient.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful AI assistant for a marathon management website. Use the event data if needed.' },
+        { role: 'user', content: message },
+        { role: 'system', content: `Here are some upcoming marathons: ${JSON.stringify(upcomingEvents)}` }
+      ],
+      temperature: 0.7
+    });
+
+    const reply = response.choices[0].message.content;
+    res.json({ reply });
+
+  } catch (error) {
+    console.error('AI Error:', error);
+    res.status(500).json({ error: 'AI request failed' });
+  }
+});
 
 
 
