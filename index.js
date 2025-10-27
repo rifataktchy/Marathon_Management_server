@@ -355,7 +355,9 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-
+app.get('/chat', (req, res) => {
+  res.send('Chat endpoint is live. Use POST to send messages.');
+});
 
   
   } finally {
